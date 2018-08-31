@@ -1,7 +1,11 @@
 import * as restify from "restify"
 import { SlackConnector } from "botbuilder-slack"
-import { createBot, BotCache } from "./bot"
+import { UniversalBot, IEvent, IIdentity } from "botbuilder"
+// import { createBot, BotCache } from "./bot"
+var env = require('node-env-file');
+env(__dirname + '/../.env');
 
+type BotCache = { [key: string]: { identity: IIdentity, token: string } }
 const botsCache: BotCache = {}
 
 const connectorSettings = {
@@ -23,13 +27,40 @@ const connectorSettings = {
   onOAuthErrorRedirectUrl: process.env.SLACK_OAUTH_ON_ERROR_REDIRECT_URL,
   onOAuthAccessDeniedRedirectUrl: process.env.SLACK_OAUTH_ON_ACCESS_DENIED_REDIRECT_URL
 }
+console.log(connectorSettings)
+
 
 const connector = new SlackConnector(connectorSettings)
 
+const bot = new UniversalBot(connector)
 const app = restify.createServer()
 
 app.use(restify.plugins.queryParser())
 app.use(restify.plugins.bodyParser())
+
+bot.on('installationUpdate', (event: IEvent) => {
+  console.info(`New bot installed by ${event.sourceEvent.SlackMessage.user_id}`)
+
+  botsCache[event.sourceEvent.SlackMessage.team_id] = {
+    identity: event.address.bot,
+    token: event.sourceEvent.ApiToken
+  }
+})
+
+bot.dialog('/', (session) => {
+  session.endDialog('pong')
+})
+
+bot.dialog('Greeting', (session) => {
+  session.endConversation('Nice to meet you');
+})
+
+bot.on("slackCommand", (event) => {
+  const commandName = event.sourceEvent.SlackMessage.command
+  const dialogName = commandName.split("/")[1]
+
+  bot.beginDialog(event.address, `${dialogName}`)
+})
 
 app.listen(3000, () => {
   console.log("Bot is listening...")
@@ -38,6 +69,16 @@ app.listen(3000, () => {
 app.post('/slack/events', connector.listenEvents() as restify.RequestHandlerType)
 app.post('/slack/interactive', connector.listenInteractiveMessages() as restify.RequestHandlerType)
 app.post('/slack/command', connector.listenCommands() as restify.RequestHandlerType)
-app.get('/slack/oauth', connector.listenOAuth() as restify.RequestHandlerType)
+app.get('/oauth', connector.listenOAuth() as restify.RequestHandlerType)
 
-createBot(connector, botsCache)
+
+app.get('/oauth.error', (error) => {
+    console.log('oauth.error');
+});
+
+app.get('/oauth.success', (payload) => {
+  console.log('oauth.success');
+  console.log(payload);
+});
+
+// createBot(connector, botsCache)
